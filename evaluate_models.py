@@ -26,6 +26,24 @@ def fit_simple_model(X_train, X_test, y_train, y_test,
                         batch_size = batch_size, epochs = epochs, verbose = verbose)
     return model, history
 
+def fit_siamese_model(X_train, X_test, y_train, y_test,
+                      input1_shape=(130,), input2_shape=(130,),
+                      output_nodes=2,
+                      num_siam_layers=1, num_siam_nodes=200, 
+                      num_hid_layers=1, num_hid_nodes=200,
+                      dropout=0,
+                      epochs=10, 
+                      batch_size=32,
+                      verbose=0):
+    model = models.siamese_model(input1_shape, input2_shape,
+                                 output_nodes,
+                                 num_siam_layers, num_siam_nodes, 
+                                 num_hid_layers, num_hid_nodes,
+                                 dropout)
+    history = model.fit([X_train[0],X_train[1]], y_train, validation_data = ([X_test[0],X_test[1]], y_test),
+                        batch_size = batch_size, epochs = epochs, verbose = verbose)
+    return model, history
+
 def simple_model_grid_search(result_filename):
     input_shape, output_nodes, epochs, batch_size = [(260,)], [2], [10], [32]
     
@@ -46,5 +64,28 @@ def simple_model_grid_search(result_filename):
             for key in history.history.keys():
                 f.write(key + "," + ",".join(map(str, history.history[key])) + "\n")
                 
-                
+def siamese_model_grid_search(result_filename):
+    input1_shape, input2_shape, output_nodes, epochs, batch_size = [(130,)],[(130,)], [2], [50], [32]
     
+    X_train, X_test, y_train, y_test = read_and_split_data("data/processed/teams_20181001-20190123_encoded.csv")
+    
+    siam_layers = [1]
+    siam_nodes = [200]
+    hid_layers = [1]
+    hid_nodes = [200]
+    dropout = [0]
+    param_grid = dict(input1_shape = input1_shape, input2_shape = input2_shape, 
+                      output_nodes = output_nodes,
+                      num_siam_layers = siam_layers, num_siam_nodes = siam_nodes,
+                      num_hid_layers = hid_layers, num_hid_nodes = hid_nodes, 
+                      dropout = dropout, epochs = epochs, batch_size = batch_size)
+    
+    for params in ParameterGrid(param_grid):
+        print(params)
+        model, history = fit_siamese_model([X_train.iloc[:,:130],X_train.iloc[:,130:]], 
+                                           [X_test.iloc[:,:130],X_test.iloc[:,130:]], 
+                                           y_train, y_test, **params)
+        with open(result_filename, 'a') as f:
+            f.write(str(params) + "\n")
+            for key in history.history.keys():
+                f.write(key + "," + ",".join(map(str, history.history[key])) + "\n")                    
