@@ -1,7 +1,19 @@
 import models
+import keras
 import pandas as pd
 from data_processing import binary_encode
 from sklearn.model_selection import train_test_split, ParameterGrid
+
+early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, 
+                              patience=2, verbose=0, 
+                              mode='auto', baseline=None, restore_best_weights=True)
+
+class LossHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.losses = []
+
+    def on_batch_end(self, batch, logs={}):
+        self.losses.append(logs.get('loss'))
 
 def read_and_split_data(filename, nrows = None):
     data = pd.read_csv(filename, nrows = nrows,
@@ -17,13 +29,15 @@ def fit_simple_model(X_train, X_test, y_train, y_test,
                      output_nodes=2, 
                      num_hid_layers=1, 
                      num_hid_nodes=200, 
-                     dropout=0.5, 
+                     dropout=0.5,
+                     regularization=0,
                      epochs=10, 
                      batch_size=32,
                      verbose=0):
-    model = models.simple_model(input_shape, output_nodes, num_hid_layers, num_hid_nodes, dropout)
+    model = models.simple_model(input_shape, output_nodes, num_hid_layers, num_hid_nodes, dropout, regularization)
     history = model.fit(X_train, y_train, validation_data = (X_test, y_test), 
-                        batch_size = batch_size, epochs = epochs, verbose = verbose)
+                        batch_size = batch_size, epochs = epochs, verbose = verbose, 
+                        callbacks = [early_stopping])
     return model, history
 
 def fit_siamese_model(X_train, X_test, y_train, y_test,
@@ -32,6 +46,7 @@ def fit_siamese_model(X_train, X_test, y_train, y_test,
                       num_siam_layers=1, num_siam_nodes=200, 
                       num_hid_layers=1, num_hid_nodes=200,
                       dropout=0,
+                      regularization=0,
                       epochs=10, 
                       batch_size=32,
                       verbose=0):
@@ -39,30 +54,35 @@ def fit_siamese_model(X_train, X_test, y_train, y_test,
                                  output_nodes,
                                  num_siam_layers, num_siam_nodes, 
                                  num_hid_layers, num_hid_nodes,
-                                 dropout)
+                                 dropout, regularization)
+    
     history = model.fit([X_train[0],X_train[1]], y_train, validation_data = ([X_test[0],X_test[1]], y_test),
-                        batch_size = batch_size, epochs = epochs, verbose = verbose)
+                        batch_size = batch_size, epochs = epochs, verbose = verbose, 
+                        callbacks = [early_stopping])
     return model, history
 
 def simple_model_grid_search(result_filename):
-    input_shape, output_nodes, epochs, batch_size = [(260,)], [2], [10], [32]
+    input_shape, output_nodes, epochs, batch_size = [(260,)], [2], [10], [1000]
     
+    print("reading data...")
     X_train, X_test, y_train, y_test = read_and_split_data("data/processed/teams_20181001-20190123_encoded.csv", nrows = 100000)
     
     hid_layers = [2]
-    hid_nodes = [100,200,300]
+    hid_nodes = [200]
     dropout = [0.5]
     param_grid = dict(input_shape = input_shape, output_nodes = output_nodes,
                       num_hid_layers = hid_layers, num_hid_nodes = hid_nodes, 
                       dropout = dropout, epochs = epochs, batch_size = batch_size)
     
+    
     for params in ParameterGrid(param_grid):
         print(params)
-        model, history = fit_simple_model(X_train, X_test, y_train, y_test, **params)
+        model, history, loss_history = fit_simple_model(X_train, X_test, y_train, y_test, **params)
         with open(result_filename, 'a') as f:
             f.write(str(params) + "\n")
             for key in history.history.keys():
                 f.write(key + "," + ",".join(map(str, history.history[key])) + "\n")
+    return loss_history
                 
 def siamese_model_grid_search(result_filename):
     input1_shape, input2_shape, output_nodes, epochs, batch_size = [(130,)],[(130,)], [2], [50], [32]
