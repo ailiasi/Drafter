@@ -1,32 +1,36 @@
 import trueskill
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import ParameterGrid
 
-env = trueskill.setup(draw_probability = 0)
 
-def update_hero_mmr(hero, time, mu, sigma, ranking, hero_mmr):
-    if hero in hero_mmr:
-        hero_mmr[hero]["history"]["update_time"].append(time)
-        hero_mmr[hero]["history"]["mu"].append(mu)
-        hero_mmr[hero]["history"]["sigma"].append(sigma)
-        hero_mmr[hero]["history"]["ranking"].append(ranking)
+def update_mmr_dict(hero, time, patch, mu, sigma, ranking, mmr_dict):            
+    if hero in mmr_dict:
+        mmr_dict[hero]["history"]["update_time"].append(time)
+        mmr_dict[hero]["history"]["mu"].append(mu)
+        mmr_dict[hero]["history"]["sigma"].append(sigma)
+        mmr_dict[hero]["history"]["ranking"].append(ranking)
+        
+        if patch not in mmr_dict[hero]["history"]["patches"]:
+            mmr_dict[hero]["history"]["patches"].append(patch)
     else:
-        hero_mmr[hero] = {"history": 
+        mmr_dict[hero] = {"history": 
                             {"update_time": [time], 
                              "mu": [mu], 
                              "sigma": [sigma], 
-                             "ranking":[ranking]}}
-    hero_mmr[hero].update({"update_time": time, "mu": mu, "sigma": sigma})
-    return hero_mmr
+                             "ranking":[ranking],
+                             "patches":[patch]}}
+    mmr_dict[hero].update({"update_time": time, "mu": mu, "sigma": sigma})
+    return mmr_dict
 
-def win_probability(ratings1, ratings2):
+def win_probability(ratings1, ratings2, env = trueskill.setup()):
     delta_mu = sum(r.mu for r in ratings1) - sum(r.mu for r in ratings2)
     sum_sigma = sum(r.sigma ** 2 for r in ratings1 + ratings2)
     size = len(ratings1) + len(ratings2)
-    denom = np.sqrt(size * (trueskill.BETA * trueskill.BETA) + sum_sigma)
+    denom = np.sqrt(size * (env.beta * env.beta) + sum_sigma)
     return env.cdf(delta_mu / denom)
 
-def win_probability_heroes(team1, team2, mmr_dict):
+def win_probability_heroes(team1, team2, mmr_dict, env = trueskill.setup()):
     ratings1 = []
     for hero in team1:
         r = env.Rating(mmr_dict[hero]["mu"], mmr_dict[hero]["sigma"])
@@ -37,12 +41,15 @@ def win_probability_heroes(team1, team2, mmr_dict):
         ratings2.append(r)
     return win_probability(ratings1, ratings2)
 
-def rate_game(game_time, heroes, winner, hero_mmr):
+def rate_game(game_time, patch, heroes, winner, mmr_dict, env = trueskill.setup()):
     ratings = []
     for hero in heroes:
-        if hero in hero_mmr:
-            mu = hero_mmr[hero]["mu"]
-            sigma = hero_mmr[hero]["sigma"]
+        if hero in mmr_dict:
+            mu = mmr_dict[hero]["mu"]
+            if patch not in mmr_dict[hero]["history"]["patches"]:
+                sigma = env.sigma
+            else:
+                sigma = mmr_dict[hero]["sigma"]
             r = env.Rating(mu = mu, sigma = sigma)
         else:
             r = env.Rating()
@@ -58,13 +65,13 @@ def rate_game(game_time, heroes, winner, hero_mmr):
     
     for hero in team1:
         new_r = rated_groups[0][hero]
-        hero_mmr = update_hero_mmr(hero, game_time, new_r.mu, new_r.sigma, rankings[0], hero_mmr)
+        mmr_dict = update_mmr_dict(hero, game_time, patch, new_r.mu, new_r.sigma, rankings[0], mmr_dict)
         
     for hero in team2:
         new_r = rated_groups[1][hero]
-        hero_mmr = update_hero_mmr(hero, game_time, new_r.mu, new_r.sigma, rankings[0], hero_mmr)
+        mmr_dict = update_mmr_dict(hero, game_time, patch, new_r.mu, new_r.sigma, rankings[0], mmr_dict)
     
-    return hero_mmr
+    return mmr_dict
 
 def read_replays(filename, game_type, game_version):
     print("Reading replays...")
@@ -90,14 +97,15 @@ def get_win_rate(replays, hero):
     return((n_team0_wins + n_team1_wins)/n_games)
     
 
-def calculate_mmr(replays):
+def calculate_mmr(replays, env = trueskill.setup()):
     mmr_dict = {}
     print("Calculating mmr...")
     for index, replay in replays.iterrows():
         game_time = replay["game_date"]
+        patch = replay["game_version"]
         heroes = replay[["hero"+str(i) for i in range(1,11)]]
         winner = replay["winner"]
-        mmr_dict = rate_game(game_time, heroes, winner, mmr_dict)
+        mmr_dict = rate_game(game_time, patch, heroes, winner, mmr_dict, env)
     return mmr_dict
 
 def list_mmr(mmr_dict):
@@ -110,27 +118,39 @@ def list_mmr(mmr_dict):
     mmr_list = pd.DataFrame(mmr_list, columns = ["hero", "mu", "sigma", "wr", "n"])
     return mmr_list
 
-replays = read_replays("../data/processed/teams_20181001-20190123_processed.csv", "HeroLeague", "2.4")
-cut = int(len(replays)*0.8)
-replays_train = replays.iloc[:cut]
-replays_test = replays.iloc[cut:]
-
-mmr_dict = calculate_mmr(replays_train)
-mmr_list = list_mmr(mmr_dict)
+if __name__ == "__main__":
+    replays = read_replays("../data/processed/teams_20181001-20190123_processed.csv", "HeroLeague", "2.41")
+    cut = int(len(replays)*0.8)
+    replays_train = replays.iloc[:cut]
+    replays_test = replays.iloc[cut:]
     
-res = []
-for i, row in replays_test.iterrows():
-    team1 = row[["hero"+str(i) for i in range(1,6)]]
-    team2 = row[["hero"+str(i) for i in range(6,11)]]
-    wp = win_probability_heroes(team1, team2, mmr_dict)
-    pred_win = 0 if wp > 0.5 else 1
-    res.append((pred_win,row["winner"]))
     
-correct = 0
-total = 0
-for pred_w, w in res:
-    if pred_w == w:
-        correct += 1
-    total += 1
+    param_grid = dict(mu = [25], mul_sigma = [1/3])
     
-print("accuracy: " + str(correct/total))
+    accuracy = []
+    for params in ParameterGrid(param_grid):
+        mu = params["mu"]
+        sigma = params["mul_sigma"]*mu
+        print(mu, sigma)
+        env = trueskill.setup(mu = params["mu"], sigma = sigma, beta = 1, tau = 0, draw_probability = 0)
+    
+        mmr_dict = calculate_mmr(replays_train, env)
+        #mmr_list = list_mmr(mmr_dict)
+        
+        res = []
+        for i, row in replays_test.iterrows():
+            team1 = row[["hero"+str(i) for i in range(1,6)]]
+            team2 = row[["hero"+str(i) for i in range(6,11)]]
+            wp = win_probability_heroes(team1, team2, mmr_dict)
+            pred_win = 0 if wp > 0.5 else 1
+            res.append((pred_win,row["winner"]))
+        
+        correct = 0
+        total = 0
+        for pred_w, w in res:
+            if pred_w == w:
+                correct += 1
+            total += 1
+            
+        accuracy.append((mu, sigma, (correct/total)))
+        print("mu = {}, sigma = {}, accuracy: {}".format(mu, sigma, (correct/total)))
