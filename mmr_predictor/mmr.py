@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import ParameterGrid
 
+HEROCOLS =  ["hero"+str(i) for i in range(1,11)]
+TEAM0 = ["hero"+str(i) for i in range(1,6)]
+TEAM1 = ["hero"+str(i) for i in range(6,11)]
+
 
 def update_mmr_dict(hero, time, patch, mu, sigma, ranking, mmr_dict):            
     if hero in mmr_dict:
@@ -39,7 +43,7 @@ def win_probability_heroes(team1, team2, mmr_dict, env = trueskill.setup()):
     for hero in team2:
         r = env.Rating(mmr_dict[hero]["mu"], mmr_dict[hero]["sigma"])
         ratings2.append(r)
-    return win_probability(ratings1, ratings2)
+    return win_probability(ratings1, ratings2, env)
 
 def rate_game(game_time, patch, heroes, winner, mmr_dict, env = trueskill.setup()):
     ratings = []
@@ -80,18 +84,14 @@ def read_replays(filename, game_type, game_version):
     data = data.sort_values("game_date")
     return data
 
-def get_win_rate(replays, hero):
-    herocols =  ["hero"+str(i) for i in range(1,11)]
-    team0 = ["hero"+str(i) for i in range(1,6)]
-    team1 = ["hero"+str(i) for i in range(6,11)]
-    
-    games = replays[(replays[herocols] == hero).any(axis = 1)]
+def get_win_rate(replays, hero):    
+    games = replays[(replays[HEROCOLS] == hero).any(axis = 1)]
     n_games = len(games)
     
-    team0_wins = games[((games[team0] == hero).any(axis = 1)) & (games["winner"] == 0)]
+    team0_wins = games[((games[TEAM0] == hero).any(axis = 1)) & (games["winner"] == 0)]
     n_team0_wins = len(team0_wins)
     
-    team1_wins = games[((games[team1] == hero).any(axis = 1)) & (games["winner"] == 1)]
+    team1_wins = games[((games[TEAM1] == hero).any(axis = 1)) & (games["winner"] == 1)]
     n_team1_wins = len(team1_wins)
     
     return((n_team0_wins + n_team1_wins)/n_games)
@@ -118,6 +118,37 @@ def list_mmr(mmr_dict):
     mmr_list = pd.DataFrame(mmr_list, columns = ["hero", "mu", "sigma", "wr", "n"])
     return mmr_list
 
+def accuracy(replays, mmr_dict, env = trueskill.setup()):
+    correct = 0
+    total = 0
+    
+    for i, row in replays.iterrows():
+        team1 = row[TEAM0]
+        team2 = row[TEAM1]
+        wp = win_probability_heroes(team1, team2, mmr_dict, env)
+        pred_win = 0 if wp > 0.5 else 1
+        
+        if pred_win == row["winner"]:
+            correct += 1
+        total += 1
+
+    return correct/total
+
+def binary_crossentropy(replays, mmr_dict, env):
+    crossentropy = 0
+    
+    for i, row in replays.iterrows():
+        team1 = row[TEAM0]
+        team2 = row[TEAM1]
+        wp = win_probability_heroes(team1, team2, mmr_dict, env)
+        
+        if row["winner"] == 0:
+            crossentropy += np.log(wp)
+        else:
+            crossentropy += np.log(1-wp)
+    
+    return crossentropy
+
 if __name__ == "__main__":
     replays = read_replays("../data/processed/teams_20181001-20190123_processed.csv", "HeroLeague", "2.41")
     cut = int(len(replays)*0.8)
@@ -127,7 +158,6 @@ if __name__ == "__main__":
     
     param_grid = dict(mu = [25], mul_sigma = [1/3])
     
-    accuracy = []
     for params in ParameterGrid(param_grid):
         mu = params["mu"]
         sigma = params["mul_sigma"]*mu
@@ -135,22 +165,7 @@ if __name__ == "__main__":
         env = trueskill.setup(mu = params["mu"], sigma = sigma, beta = 1, tau = 0, draw_probability = 0)
     
         mmr_dict = calculate_mmr(replays_train, env)
-        #mmr_list = list_mmr(mmr_dict)
         
-        res = []
-        for i, row in replays_test.iterrows():
-            team1 = row[["hero"+str(i) for i in range(1,6)]]
-            team2 = row[["hero"+str(i) for i in range(6,11)]]
-            wp = win_probability_heroes(team1, team2, mmr_dict)
-            pred_win = 0 if wp > 0.5 else 1
-            res.append((pred_win,row["winner"]))
-        
-        correct = 0
-        total = 0
-        for pred_w, w in res:
-            if pred_w == w:
-                correct += 1
-            total += 1
+        acc = accuracy(replays_test, mmr_dict)
             
-        accuracy.append((mu, sigma, (correct/total)))
-        print("mu = {}, sigma = {}, accuracy: {}".format(mu, sigma, (correct/total)))
+        print("mu = {}, sigma = {}, accuracy: {}".format(mu, sigma, acc))
