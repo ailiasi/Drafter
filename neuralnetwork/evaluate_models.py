@@ -1,4 +1,4 @@
-import models
+from . import models
 import keras
 import pandas as pd
 from data_processing import binary_encode
@@ -7,13 +7,6 @@ from sklearn.model_selection import train_test_split, ParameterGrid
 early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, 
                               patience=2, verbose=0, 
                               mode='auto', baseline=None, restore_best_weights=True)
-
-class LossHistory(keras.callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        self.losses = []
-
-    def on_batch_end(self, batch, logs={}):
-        self.losses.append(logs.get('loss'))
 
 def read_and_split_data(filename, nrows = None):
     data = pd.read_csv(filename, nrows = nrows,

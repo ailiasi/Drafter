@@ -2,8 +2,6 @@ import keras
 from keras.layers import Input, Dense, Dropout
 from keras.models import Model
 from keras import regularizers
-from sklearn.model_selection import train_test_split
-
 
 
 def siamese_model(input1_shape, input2_shape,

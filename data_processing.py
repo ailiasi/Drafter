@@ -38,7 +38,7 @@ MAPS = {'Alterac Pass': 0,
 
 MODES = {'HeroLeague': 0, 'QuickMatch': 1, 'TeamLeague': 2, 'UnrankedDraft':3}
 
-HEROCOLUMNS = ["hero" + str(i) for i in range(1,10)]
+HEROCOLUMNS = ["hero" + str(i) for i in range(1,11)]
 TEAM0 = HEROCOLUMNS[:5]
 TEAM1 = HEROCOLUMNS[5:]
 
@@ -54,20 +54,26 @@ def collect_heroes_per_replay(df, hero_field, grouping_fields, team_fields):
     return df_new
 
 def encode_row(row):
-    fields = [row["id"]] + \
-             [HEROES[hero] for hero in row[TEAM0]] + \
+    fields = [HEROES[hero] for hero in row[TEAM0]] + \
              [HEROES[hero] + 130 for hero in row[TEAM1]] + \
              [MAPS[row["game_map"]] + 100, 
               MAPS[row["game_map"]] + 100 + 130,
               MODES[row["game_type"]] + 120,
               MODES[row["game_type"]] + 120 + 130,
               260 + row["winner"]]
-    return pd.Series(fields, index = ["replay_id"] + TEAM0 + TEAM1 + ["map0", "map1", "mode0", "mode1", "winner"])
+    return pd.Series(fields, index = TEAM0 + TEAM1 + ["map0", "map1", "mode0", "mode1", "winner"])
 
 def binary_encode(row):
     encode = np.zeros(262)
     encode[row] = 1
     return pd.Series(encode)
+
+def read_replays(filename, game_type, game_version):
+    replays = pd.read_csv(filename, parse_dates = ["game_date"])
+    replays = (replays[(replays["game_type"] == game_type) & (replays["game_version"].str.startswith(game_version))]
+                   .sort_values("game_date")
+                   .dropna())
+    return replays
 
 
 if __name__ == "__main__":
