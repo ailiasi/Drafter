@@ -147,7 +147,7 @@ def binary_crossentropy(replays, mmr_dict, env):
         else:
             crossentropy += np.log(1-wp)
     
-    return crossentropy
+    return -crossentropy/len(replays)
 
 if __name__ == "__main__":
     replays = read_replays("../data/processed/teams_20181001-20190123_processed.csv", "HeroLeague", "2.41")

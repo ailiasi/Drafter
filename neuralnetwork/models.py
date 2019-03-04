@@ -44,11 +44,9 @@ def siamese_model(input1_shape, input2_shape,
 def simple_model(input_shape, output_nodes, num_hid_layers, num_hid_nodes, dropout = 0, regularization = 0):
     input_layer = Input(shape = input_shape, name = "input")
     
-    if num_hid_layers > 0:
-        hidden_layer = Dense(num_hid_nodes, activation = 'relu', kernel_regularizer = regularizers.l1(regularization), name = "hidden_0")(input_layer)
-        hidden_layer = Dropout(dropout, name = "dropout_0")(hidden_layer)
+    hidden_layer = input_layer
     
-    for i in range(1,num_hid_layers):
+    for i in range(0,num_hid_layers):
         hidden_layer = Dense(num_hid_nodes, activation = 'relu', kernel_regularizer = regularizers.l1(regularization), name = "hidden_" + str(i))(hidden_layer)
         hidden_layer = Dropout(dropout, name = "dropout_" + str(i))(hidden_layer)
         
